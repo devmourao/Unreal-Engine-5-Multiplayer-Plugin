@@ -32,8 +32,13 @@ void UMultiplayerSessionsSubsystem::CreateSession(int32 NumPublicConnections, FS
 	if (!SessionInterface.IsValid()) return;
 
 	auto ExistingSession = SessionInterface->GetNamedSession(NAME_GameSession);
-	if (ExistingSession != nullptr) {
-		SessionInterface->DestroySession(NAME_GameSession);
+	if (ExistingSession != nullptr) 
+	{
+		bCreateSessionOnDestroy = true;
+		LastNumPublicConnections = NumPublicConnections;
+		LastMatchType = MatchType;
+
+		DestroySession();
 	}
 
 	CreateSessionCompleteDelegateHandle = SessionInterface->AddOnCreateSessionCompleteDelegate_Handle(CreateSessionCompleteDelegate);
@@ -49,6 +54,12 @@ void UMultiplayerSessionsSubsystem::CreateSession(int32 NumPublicConnections, FS
 	SessionSettings->bShouldAdvertise = true;
 
 	SessionSettings->Set(FName("MatchType"), MatchType, EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
+
+
+	SessionSettings->BuildUniqueId = 1;
+	
+
+
 
 	const ULocalPlayer* LocalPlayer = GetWorld()->GetFirstLocalPlayerFromController();
 	if (!SessionInterface->CreateSession(*LocalPlayer->GetPreferredUniqueNetId(), NAME_GameSession, *SessionSettings)) {
@@ -89,6 +100,13 @@ void UMultiplayerSessionsSubsystem::DestroySession()
 	if (!SessionInterface.IsValid()) return;
 
 	DestroySessionCompleteDelegateHandle = SessionInterface->AddOnDestroySessionCompleteDelegate_Handle(DestroySessionCompleteDelegate);
+
+	if (!SessionInterface->DestroySession(NAME_GameSession))
+	{
+		SessionInterface->ClearOnDestroySessionCompleteDelegate_Handle(DestroySessionCompleteDelegateHandle);
+		
+	}
+
 }
 
 void UMultiplayerSessionsSubsystem::StartSession()
@@ -96,6 +114,11 @@ void UMultiplayerSessionsSubsystem::StartSession()
 	if (!SessionInterface.IsValid()) return;
 
 	StartSessionCompleteDelegateHandle = SessionInterface->AddOnStartSessionCompleteDelegate_Handle(StartSessionCompleteDelegate);
+
+	if (!SessionInterface->StartSession(NAME_GameSession))
+	{
+		SessionInterface->ClearOnStartSessionCompleteDelegate_Handle(StartSessionCompleteDelegateHandle);
+	}
 }
 
 void UMultiplayerSessionsSubsystem::OnCreateSessionComplete(FName SessionName, bool bWasSucessfull) {
@@ -201,8 +224,10 @@ void UMultiplayerSessionsSubsystem::OnDestroySessionComplete(FName SessionName, 
 
 	SessionInterface->ClearOnDestroySessionCompleteDelegate_Handle(DestroySessionCompleteDelegateHandle);
 
-	if (bWasSucessfull) {
+	if (bWasSucessfull && bCreateSessionOnDestroy) {
 		UE_LOG(LogTemp, Display, TEXT("[Online] Successfully destroyed the session"));
+		bCreateSessionOnDestroy = false;
+		CreateSession(LastNumPublicConnections, LastMatchType);
 	}
 	else
 	{
@@ -219,6 +244,15 @@ void UMultiplayerSessionsSubsystem::OnStartSessionComplete(FName SessionName, bo
 
 	if (bWasSucessfull) {
 		UE_LOG(LogTemp, Display, TEXT("[Online] Successfully started the session"));
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(
+				-1,
+				60.f,
+				FColor::Cyan,
+				FString::Printf(TEXT("Game session has succsessfully started"))
+			);
+		}
 	}
 	else
 	{
